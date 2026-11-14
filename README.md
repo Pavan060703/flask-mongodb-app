@@ -1,265 +1,130 @@
+
 # Flask + MongoDB on Kubernetes (Minikube)
 
-A containerized Flask application integrated with MongoDB, deployed on a local Kubernetes cluster using Minikube. The project demonstrates containerization with Docker, database authentication, Kubernetes deployments, persistent storage, Secrets management, and CPU-based Horizontal Pod Autoscaling (HPA).
+A Flask app with `/` and `/data` endpoints, backed by MongoDB with authentication. It runs on Minikube with persistent storage, a Secret for credentials, and CPU-based autoscaling (HPA).
 
-## 🚀 Project Overview
+Docker image: `pavanvbhavsar2003/flask-mongodb-app:1.1`
 
-This project demonstrates how to deploy a Flask web application backed by MongoDB on Kubernetes using Minikube.
-
-The Flask application provides REST API endpoints to interact with MongoDB. MongoDB uses authentication and persistent storage to ensure database security and data retention.
-
-### Key Features
-
-- Flask REST API application.
-- MongoDB integration with username and password authentication.
-- Docker containerization.
-- Kubernetes deployment using Minikube.
-- Kubernetes PersistentVolume and PersistentVolumeClaim.
-- Kubernetes Secrets for database credentials.
-- Kubernetes Services for application and database communication.
-- Horizontal Pod Autoscaling (HPA) based on CPU utilization.
-- Containerized deployment using Docker Hub.
-
-## 🛠️ Technologies Used
-
-- **Programming Language:** Python
-- **Backend Framework:** Flask
-- **Database:** MongoDB
-- **Containerization:** Docker
-- **Container Orchestration:** Kubernetes
-- **Local Kubernetes Cluster:** Minikube
-- **Kubernetes CLI:** kubectl
-- **Container Registry:** Docker Hub
-
-## 🏗️ Project Architecture
-
-```text
-              User / Browser
-                    |
-                    v
-              Flask Service
-                    |
-                    v
-             Flask Deployment
-                    |
-                    v
-               Flask Pod
-                    |
-                    v
-             MongoDB Service
-                    |
-                    v
-              MongoDB Pod
-                    |
-                    v
-           Persistent Storage
+## Project structure
 ```
-
-## 📁 Project Structure
-
-```text
 flask-mongodb-app/
-│
 ├── app.py
 ├── requirements.txt
 ├── Dockerfile
+├── .dockerignore
 ├── README.md
-│
-└── kubernetes/
-    ├── mongodb-secret.yaml
-    ├── mongodb-pv.yaml
-    ├── mongodb-pvc.yaml
-    ├── mongodb-deployment.yaml
-    ├── mongodb-service.yaml
-    ├── flask-deployment.yaml
-    ├── flask-service.yaml
-    └── flask-hpa.yaml
+├── screenshots/
+└── k8s/
+    ├── 01-mongo-secret.yaml
+    ├── 02-mongo-pv.yaml
+    ├── 03-mongo-pvc.yaml
+    ├── 04-mongo-service.yaml
+    ├── 05-mongo-statefulset.yaml
+    ├── 06-flask-deployment.yaml
+    ├── 07-flask-service.yaml
+    └── 08-flask-hpa.yaml
 ```
 
-*Update the filenames according to your actual project structure.*
+## Prerequisites
+Docker Desktop, Minikube, kubectl, a Docker Hub account.
 
-## 📋 Prerequisites
-
-Install the following tools:
-
-1. Docker Desktop
-2. Minikube
-3. kubectl
-4. Python 3.x
-5. Docker Hub account
-
-## 1. Clone the Repository
-
-```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-cd flask-mongodb-app
+## 1. Build and push the image
 ```
-
-## 2. Build and Push Docker Image
-
-Build the Docker image:
-
-```bash
-docker build -t pavanvbhavsar2003/flask-mongodb-app:1.1 .
-```
-
-Log in to Docker Hub:
-
-```bash
+docker build --platform linux/amd64 -t pavanvbhavsar2003/flask-mongodb-app:1.1 .
 docker login
-```
-
-Push the image:
-
-```bash
 docker push pavanvbhavsar2003/flask-mongodb-app:1.1
 ```
 
-Docker Hub Image:
-
-`pavanvbhavsar2003/flask-mongodb-app:1.1`
-
-## 3. Start Minikube
-
-```bash
-minikube start --driver=docker
+## 2. Start Minikube
 ```
-
-Verify the cluster:
-
-```bash
-kubectl get nodes
-```
-
-## 4. Deploy MongoDB
-
-Apply MongoDB configuration files:
-
-```bash
-kubectl apply -f kubernetes/mongodb-secret.yaml
-kubectl apply -f kubernetes/mongodb-pv.yaml
-kubectl apply -f kubernetes/mongodb-pvc.yaml
-kubectl apply -f kubernetes/mongodb-deployment.yaml
-kubectl apply -f kubernetes/mongodb-service.yaml
-```
-
-Verify MongoDB:
-
-```bash
-kubectl get pods
-kubectl get services
-kubectl get pvc
-```
-
-## 5. Deploy Flask Application
-
-```bash
-kubectl apply -f kubernetes/flask-deployment.yaml
-kubectl apply -f kubernetes/flask-service.yaml
-```
-
-Verify deployment:
-
-```bash
-kubectl get deployments
-kubectl get pods
-kubectl get services
-```
-
-## 6. Configure Horizontal Pod Autoscaling
-
-Apply the HPA configuration:
-
-```bash
-kubectl apply -f kubernetes/flask-hpa.yaml
-```
-
-Check autoscaling status:
-
-```bash
-kubectl get hpa
-```
-
-For CPU-based autoscaling, ensure the Kubernetes Metrics Server is enabled and resource requests are configured.
-
-```bash
+minikube start --driver=docker --cpus=2 --memory=2200
 minikube addons enable metrics-server
 ```
 
-## 7. Access the Application
+## 3. Deploy
+```
+kubectl apply -f k8s/
+kubectl get pods,svc,pv,pvc,hpa
+```
 
-Get the application URL:
-
-```bash
+## 4. Access the app
+```
 minikube service flask-service --url
 ```
+Keep that terminal open, then test with the printed URL:
+```
+curl.exe <url>/
+Invoke-RestMethod -Method Post -Uri "<url>/data" -ContentType "application/json" -Body '{"sampleKey":"sampleValue"}'
+curl.exe <url>/data
+```
 
-Open the generated URL in your browser.
+## 5. DNS resolution in the cluster
+Kubernetes runs CoreDNS in the `kube-system` namespace, and every pod sends its DNS lookups there. Each Service gets a name like `<service>.<namespace>.svc.cluster.local`, so the MongoDB Service is `mongodb.default.svc.cluster.local`. Pods in the same namespace can use the short name `mongodb`.
 
-## 🌐 API Endpoints
+Flask reads `MONGO_HOST=mongodb`, asks CoreDNS for that name, and connects to port 27017. The MongoDB Service is headless (`clusterIP: None`), so CoreDNS returns the MongoDB pod's own IP. The pod IP changes on restart, but the DNS name stays the same.
 
-| Method | Endpoint | Description |
+## 6. Resource requests and limits
+A **request** is the amount of CPU and memory a container is guaranteed. The HPA measures CPU as a percentage of the request. A **limit** is the maximum a container may use (CPU over the limit is throttled, memory over the limit is OOMKilled).
+
+| | CPU | Memory |
 |---|---|---|
-| GET | `/` | Check application status |
-| GET | `/data` | Retrieve data from MongoDB |
+| Request | 200m | 250M |
+| Limit | 500m | 500M |
 
-*Add POST or other endpoints if they are implemented in your application.*
+The HPA target of 70% means it scales up when pods average more than 140m CPU. MongoDB uses `--wiredTigerCacheSizeGB 0.25` to stay under its 500M limit (measured about 238Mi).
 
-## 🔍 Testing and Verification
+## 7. Design choices
+| Choice | Why | Alternative | Why not |
+|---|---|---|---|
+| StatefulSet for MongoDB | Stable pod name and its own disk | Deployment | Pod names change, replicas could share one disk |
+| Headless Service | Internal only, direct pod DNS | Normal ClusterIP | Hides pod identity a database needs |
+| NodePort for Flask | Simple to reach from a laptop | LoadBalancer / Ingress | Needs extra setup |
+| hostPath PV, Retain policy | Works on one-node Minikube, keeps data if PVC is deleted | Dynamic StorageClass | Better for real multi-node clusters |
+| Secret for credentials | Password kept out of code and image | Plain env values | Visible in the Deployment |
+| mongo:7.0 pinned | Repeatable builds | latest | Version could change |
+| python:3.11-slim, non-root user | Small and safer | Full image | Bigger image |
+| Readiness and liveness probes | Traffic only to ready pods | No probes | Requests could hit starting pods |
 
-Check running pods:
+## 8. Testing
 
-```bash
-kubectl get pods
+### Database
+- Login with the password works, and the data is visible in mongosh.
+- Without the password MongoDB answers `Command find requires authentication`.
+- After `kubectl delete pod mongodb-0`, the data was still there, so the PV works.
+
+### Autoscaling (HPA results)
+HPA settings: target 70% CPU, min 2 pods, max 5 pods.
+
+Load was generated with three busybox pods that call Flask in a loop:
+```
+kubectl run load-1 --image=busybox:1.36 --restart=Never -- /bin/sh -c "while true; do wget -q -O- http://flask-service:5000/ > /dev/null; done"
+kubectl run load-2 --image=busybox:1.36 --restart=Never -- /bin/sh -c "while true; do wget -q -O- http://flask-service:5000/ > /dev/null; done"
+kubectl run load-3 --image=busybox:1.36 --restart=Never -- /bin/sh -c "while true; do wget -q -O- http://flask-service:5000/ > /dev/null; done"
 ```
 
-Check services:
+| Stage | Load pods | CPU (TARGETS) | Flask replicas | Notes |
+|---|---|---|---|---|
+| Baseline | 0 | 1% | 2 | idle |
+| Load started | 3 | 113% | 2 | passed the 70% target |
+| Scale-up | 3 | 113% | 4 | HPA added 2 pods |
+| Stable under load | 3 | 51% to 72% | 4 | about 108m CPU per pod |
+| Load stopped | 0 | 1% | 4 | waits for the stabilization window |
+| After about 5 min | 0 | 1% | 2 | scaled back to the minimum |
 
-```bash
-kubectl get svc
+Summary: under load, CPU rose to 113% of the 70% target and the HPA scaled Flask from 2 to 4 pods. CPU then settled around 51% to 72%. After the load stopped, CPU fell to 1% and replicas returned to 2 after about 5 minutes (Kubernetes' default scale-down wait).
+
+![HPA scale up](screenshots/result%201.png)
+![Top pods under load](screenshots/result%202.png)
+![HPA scale down](screenshots/result%203.png)
+
+### Problems I hit and how I fixed them
+1. `docker build` failed with `exec format error`. Building with `--platform linux/amd64` fixed it.
+2. The C: drive was full, so Docker went read-only and Minikube would not start. I cleaned the disk and moved Docker's disk image to D:.
+3. Flask connected to `localhost:27017` because the first image was built before the auth code change. I rebuilt it as tag `1.1`.
+4. The HPA first showed `unable to get metrics` until metrics-server warmed up.
+
+## Clean up
 ```
-
-Check persistent storage:
-
-```bash
-kubectl get pv
-kubectl get pvc
+kubectl delete -f k8s/
+minikube stop
 ```
-
-Check application logs:
-
-```bash
-kubectl logs deployment/flask-deployment
-```
-
-Check MongoDB logs:
-
-```bash
-kubectl logs deployment/mongodb
-```
-
-Check HPA:
-
-```bash
-kubectl get hpa
-```
-
-## 🔐 Security
-
-- MongoDB authentication enabled.
-- Database credentials managed through Kubernetes Secrets.
-- Persistent storage configured for MongoDB.
-- Avoid committing actual passwords or sensitive credentials to GitHub.
-- Use environment variables to configure database connections.
-
-
-## 👨‍💻 Author
-
-Pavan Bhavsar
-
-
-GitHub: https://github.com/pavanvbhavsar2003
-
-## 📄 License
-
-This project is developed for educational and learning purposes. You may add an MIT License if you intend to distribute it under that license.
